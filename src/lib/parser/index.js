@@ -402,7 +402,7 @@ function parseSymbolsTable32(start, eachSize, num, head, nextInt, addMember, buf
         s.other = nextInt(1);
         addMember(1, `Symbol [${i}] other (i.e. visibility) (0x${s.other.toString(16)}, ${formatSymbolOther(s.other)})`);
         s.correspondingSection = nextInt(2);
-        addMember(2, `Symbol [${i}] corresponding section (${s.correspondingSection})`);
+        addMember(2, `Symbol [${i}] corresponding section (${formatSymbolSection(s.correspondingSection)})`);
 
         symbols.push(s);
     }
@@ -423,7 +423,7 @@ function parseSymbolsTable64(start, eachSize, num, head, nextInt, addMember, buf
         s.other = nextInt(1);
         addMember(1, `Symbol [${i}] other (i.e. visibility) (0x${s.other.toString(16)}, ${formatSymbolOther(s.other)})`);
         s.correspondingSection = nextInt(2);
-        addMember(2, `Symbol [${i}] corresponding section (${s.correspondingSection})`);
+        addMember(2, `Symbol [${i}] corresponding section (${formatSymbolSection(s.correspondingSection)})`);
         s.value = nextInt(8);
         addMember(8, `Symbol [${i}] value (i.e. address) = 0x${s.value.toString(16)}`);
         s.size = nextInt(8);
@@ -440,6 +440,20 @@ function formatSymbolInfo(num) {
 
 function formatSymbolOther(num) { // i.e. symbol visibility
     return ["DEFAULT", "INTERNAL", "HIDDEN", "PROTECTED"][num] ?? "unknown";
+}
+
+function formatSymbolSection(num) {
+    switch (num) {
+        case 0xff1f: return "HIPROC";
+        case 0xfff1: return "ABS";
+        case 0xfff2: return "COMMON";
+        case 0xffff: return "XINDEX";
+        case 0xffff: return "HIRESERVE";
+    }
+    if (num < 0xff00) {
+        return `[${num}]`;
+    }
+    return `reserved index 0x${num.toString(16)}`;
 }
 
 // Read a null-terminated string at `addr` in `buf`
