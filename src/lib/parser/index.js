@@ -389,7 +389,7 @@ function parseSymbolsTable32(start, eachSize, num, head, nextInt, addMember, buf
     for (let i = 0; i < num; i++) {
         head.ptr = start + i * eachSize;
         const s = {};
-        
+
         s.name = nextInt(4);
         s.nameStr = readStringAt(namesStart + s.name, buf);
         addMember(4, `Symbol [${i}] name offset (0x${s.name.toString(16)}, "${s.nameStr}")`, namesStart + s.name);
@@ -398,9 +398,9 @@ function parseSymbolsTable32(start, eachSize, num, head, nextInt, addMember, buf
         s.size = nextInt(4);
         addMember(4, `Symbol [${i}] size (0x${s.size.toString(16)})`);
         s.info = nextInt(1);
-        addMember(1, `Symbol [${i}] info (0x${s.info.toString(16)})`);
+        addMember(1, `Symbol [${i}] info (i.e. type) (0x${s.info.toString(16)}, ${formatSymbolInfo(s.info)})`);
         s.other = nextInt(1);
-        addMember(1, `Symbol [${i}] other (0x${s.other.toString(16)})`);
+        addMember(1, `Symbol [${i}] other (i.e. visibility) (0x${s.other.toString(16)}, ${formatSymbolOther(s.other)})`);
         s.correspondingSection = nextInt(2);
         addMember(2, `Symbol [${i}] corresponding section (${s.correspondingSection})`);
 
@@ -419,9 +419,9 @@ function parseSymbolsTable64(start, eachSize, num, head, nextInt, addMember, buf
         s.nameStr = readStringAt(namesStart + s.name, buf);
         addMember(4, `Symbol [${i}] name offset (0x${s.name.toString(16)}, "${s.nameStr}")`, namesStart + s.name);
         s.info = nextInt(1);
-        addMember(1, `Symbol [${i}] info (0x${s.info.toString(16)})`);
+        addMember(1, `Symbol [${i}] info (i.e. type) (0x${s.info.toString(16)}, ${formatSymbolInfo(s.info)})`);
         s.other = nextInt(1);
-        addMember(1, `Symbol [${i}] other (0x${s.other.toString(16)})`);
+        addMember(1, `Symbol [${i}] other (i.e. visibility) (0x${s.other.toString(16)}, ${formatSymbolOther(s.other)})`);
         s.correspondingSection = nextInt(2);
         addMember(2, `Symbol [${i}] corresponding section (${s.correspondingSection})`);
         s.value = nextInt(8);
@@ -432,6 +432,14 @@ function parseSymbolsTable64(start, eachSize, num, head, nextInt, addMember, buf
         symbols.push(s);
     }
     return symbols;
+}
+
+function formatSymbolInfo(num) {
+    return ["NOTYPE", "OBJECT", "FUNC", "SECTION", "FILE", "COMMON", "TLS", "NUM"][num] ?? "unknown";
+}
+
+function formatSymbolOther(num) { // i.e. symbol visibility
+    return ["DEFAULT", "INTERNAL", "HIDDEN", "PROTECTED"][num] ?? "unknown";
 }
 
 // Read a null-terminated string at `addr` in `buf`
