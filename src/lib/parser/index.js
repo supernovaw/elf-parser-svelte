@@ -101,8 +101,9 @@ export default function parser(buf) {
 
     const shstrtabArrayOffset = findShstrtabArrayOffset(bytes, elfHeader, endianness, regSize);
 
-    let segments = parseSegmentHeaders(regSize, elfHeader, head, nextInt, addMember, addArea);
-    let sections = parseSectionHeaders(regSize, elfHeader, head, nextInt, addMember, addArea, bytes, shstrtabArrayOffset);
+    const segments = parseSegmentHeaders(regSize, elfHeader, head, nextInt, addMember, addArea);
+    const sections = parseSectionHeaders(regSize, elfHeader, head, nextInt, addMember, addArea, bytes, shstrtabArrayOffset);
+    const symbols = parseSymbolsTable(regSize, sections, head, nextInt, addMember, addArea, bytes);
 
     return { members, areas };
 }
@@ -359,6 +360,80 @@ function parseSectionHeaders64(start, eachSize, num, head, nextInt, addMember, b
     return sections;
 }
 
+// Adaptively parse symbol table (if any)
+function parseSymbolsTable(regSize, sections, head, nextInt, addMember, addArea, buf) {
+    const symtabHeader = sections.find(s => s.nameStr === ".symtab");
+    if (!symtabHeader) return [];
+    const strtabHeader = sections.find(s => s.nameStr === ".strtab");
+    if (!strtabHeader) throw new Error("Have .symtab but no .strtab to resolve symbols' names");
+
+    const start = symtabHeader.fileOffset;
+    const eachSize = symtabHeader.entSize;
+    const num = symtabHeader.size / eachSize;
+
+    let fn;
+    if (regSize === 4) fn = parseSymbolsTable32;
+    else if (regSize === 8) fn = parseSymbolsTable64;
+
+    const symbols = fn(start, eachSize, num, head, nextInt, addMember, buf, strtabHeader.fileOffset);
+
+    for (let i = 0; i < num; i++) {
+        addArea(start + i * eachSize, eachSize, `Symbol [${i}] "${symbols[i].nameStr}"`);
+    }
+
+    return symbols;
+}
+
+function parseSymbolsTable32(start, eachSize, num, head, nextInt, addMember, buf, namesStart) {
+    const symbols = [];
+    for (let i = 0; i < num; i++) {
+        head.ptr = start + i * eachSize;
+        const s = {};
+        
+        s.name = nextInt(4);
+        s.nameStr = readStringAt(namesStart + s.name, buf);
+        addMember(4, `Symbol [${i}] name offset (0x${s.name.toString(16)}, "${s.nameStr}")`, namesStart + s.name);
+        s.value = nextInt(4);
+        addMember(4, `Symbol [${i}] value (i.e. address) = 0x${s.value.toString(16)}`);
+        s.size = nextInt(4);
+        addMember(4, `Symbol [${i}] size (0x${s.size.toString(16)})`);
+        s.info = nextInt(1);
+        addMember(1, `Symbol [${i}] info (0x${s.info.toString(16)})`);
+        s.other = nextInt(1);
+        addMember(1, `Symbol [${i}] other (0x${s.other.toString(16)})`);
+        s.correspondingSection = nextInt(2);
+        addMember(2, `Symbol [${i}] corresponding section (${s.correspondingSection})`);
+
+        symbols.push(s);
+    }
+    return symbols;
+}
+
+function parseSymbolsTable64(start, eachSize, num, head, nextInt, addMember, buf, namesStart) {
+    const symbols = [];
+    for (let i = 0; i < num; i++) {
+        head.ptr = start + i * eachSize;
+        const s = {};
+
+        s.name = nextInt(4);
+        s.nameStr = readStringAt(namesStart + s.name, buf);
+        addMember(4, `Symbol [${i}] name offset (0x${s.name.toString(16)}, "${s.nameStr}")`, namesStart + s.name);
+        s.info = nextInt(1);
+        addMember(1, `Symbol [${i}] info (0x${s.info.toString(16)})`);
+        s.other = nextInt(1);
+        addMember(1, `Symbol [${i}] other (0x${s.other.toString(16)})`);
+        s.correspondingSection = nextInt(2);
+        addMember(2, `Symbol [${i}] corresponding section (${s.correspondingSection})`);
+        s.value = nextInt(8);
+        addMember(8, `Symbol [${i}] value (i.e. address) = 0x${s.value.toString(16)}`);
+        s.size = nextInt(8);
+        addMember(8, `Symbol [${i}] size (0x${s.size.toString(16)})`);
+
+        symbols.push(s);
+    }
+    return symbols;
+}
+
 // Read a null-terminated string at `addr` in `buf`
 function readStringAt(addr, buf) {
     let result = "";
@@ -372,8 +447,8 @@ function readStringAt(addr, buf) {
 
 // Read either big-endian or little-endian `size` bytes from `buf` and shift `head`
 function readInt(buf, head, endianness, size) {
-    if (size !== 2 && size !== 4 && size !== 8) {
-        throw new Error("Expected 2, 4, or 8 as `size` but got " + size);
+    if (size !== 1 && size !== 2 && size !== 4 && size !== 8) {
+        throw new Error("Expected 1, 2, 4, or 8 as `size` but got " + size);
     }
     if (endianness !== "big" && endianness !== "little") {
         throw new Error("Invalid endianness '" + endianness + "'");
