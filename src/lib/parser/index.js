@@ -102,7 +102,7 @@ export default function parser(buf) {
     const shstrtabArrayOffset = findShstrtabArrayOffset(bytes, elfHeader, endianness, regSize);
 
     let segments = parseSegmentHeaders(regSize, elfHeader, head, nextInt, addMember, addArea);
-    let sections = parseSectionHeaders(regSize, elfHeader, head, nextInt, addMember, addArea, shstrtabArrayOffset);
+    let sections = parseSectionHeaders(regSize, elfHeader, head, nextInt, addMember, addArea, bytes, shstrtabArrayOffset);
 
     return { members, areas };
 }
@@ -255,7 +255,7 @@ function formatSectionFlags(num) {
 }
 
 // Adaptively parse section headers
-function parseSectionHeaders(regSize, elfHeader, head, nextInt, addMember, addArea, shstrtabArrayOffset) {
+function parseSectionHeaders(regSize, elfHeader, head, nextInt, addMember, addArea, buf, shstrtabArrayOffset) {
     const start = elfHeader.sectionHeadersStart;
     const eachSize = elfHeader.sectionHeaderSize;
     const num = elfHeader.sectionsNum;
@@ -275,16 +275,17 @@ function parseSectionHeaders(regSize, elfHeader, head, nextInt, addMember, addAr
         head,
         nextInt,
         addMember,
+        buf,
         shstrtabArrayOffset
     );
     sections.forEach((s, i) => {
         if (s.fileOffset !== 0)
-            addArea(s.fileOffset, s.size, "Section [" + i + "]");
+            addArea(s.fileOffset, s.size, `Section [${i}] "${s.nameStr}"`);
     });
     return sections;
 }
 
-function parseSectionHeaders32(start, eachSize, num, head, nextInt, addMember, namesStart) {
+function parseSectionHeaders32(start, eachSize, num, head, nextInt, addMember, buf, namesStart) {
     const nextAddr = () => nextInt(4); // 32-bit
     const sections = [];
     if (eachSize === 0 || num === 0) return sections;
@@ -294,7 +295,8 @@ function parseSectionHeaders32(start, eachSize, num, head, nextInt, addMember, n
         const s = {};
 
         s.name = nextInt(4);
-        addMember(4, `Section [${i}] name offset (0x${s.name.toString(16)})`, namesStart + s.name);
+        s.nameStr = readStringAt(namesStart + s.name, buf);
+        addMember(4, `Section [${i}] name offset (0x${s.name.toString(16)}, "${s.nameStr}")`, namesStart + s.name);
         s.type = nextInt(4);
         addMember(4, `Section [${i}] type (${s.type}: ${formatSectionType(s.type)})`);
         s.flags = nextInt(4);
@@ -320,7 +322,7 @@ function parseSectionHeaders32(start, eachSize, num, head, nextInt, addMember, n
     return sections;
 }
 
-function parseSectionHeaders64(start, eachSize, num, head, nextInt, addMember, namesStart) {
+function parseSectionHeaders64(start, eachSize, num, head, nextInt, addMember, buf, namesStart) {
     const nextAddr = () => nextInt(8); // 64-bit
     const sections = [];
     if (eachSize === 0 || num === 0) return sections;
@@ -330,7 +332,8 @@ function parseSectionHeaders64(start, eachSize, num, head, nextInt, addMember, n
         const s = {};
 
         s.name = nextInt(4);
-        addMember(4, `Section [${i}] name offset (0x${s.name.toString(16)})`, namesStart + s.name);
+        s.nameStr = readStringAt(namesStart + s.name, buf);
+        addMember(4, `Section [${i}] name offset (0x${s.name.toString(16)}, "${s.nameStr}")`, namesStart + s.name);
         s.type = nextInt(4);
         addMember(4, `Section [${i}] type (${s.type}: ${formatSectionType(s.type)})`);
         s.flags = nextAddr();
@@ -354,6 +357,17 @@ function parseSectionHeaders64(start, eachSize, num, head, nextInt, addMember, n
     }
 
     return sections;
+}
+
+// Read a null-terminated string at `addr` in `buf`
+function readStringAt(addr, buf) {
+    let result = "";
+    while (result.length < 256) {
+        const c = buf[addr++];
+        if (c === 0) break;
+        result += String.fromCharCode(c);
+    }
+    return result;
 }
 
 // Read either big-endian or little-endian `size` bytes from `buf` and shift `head`
