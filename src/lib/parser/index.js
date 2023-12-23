@@ -106,6 +106,7 @@ export default function parser(buf) {
     const segments = parseSegmentHeaders(regSize, elfHeader, head, nextInt, addMember, addArea);
     const sections = parseSectionHeaders(regSize, elfHeader, head, nextInt, addMember, addArea, bytes, shstrtabArrayOffset);
     const symbols = parseSymbolsTable(regSize, sections, head, nextInt, addMember, addArea, bytes);
+    const relocs = parseRelocationSections(regSize, elfHeader, sections, symbols, head, nextInt, addMember, addArea);
 
     return { members, areas };
 }
@@ -409,13 +410,13 @@ function parseSymbolsTable32(start, eachSize, num, head, nextInt, addMember, buf
         symbols.push(s);
 
         if (s.correspondingSection !== 0 && s.correspondingSection !== 0xfff1 && sections[s.correspondingSection]) {
-            valueMember.ptr = sections[s.correspondingSection].fileOffset + s.value;
+            s.fileOffset = sections[s.correspondingSection].fileOffset + s.value;
+            valueMember.ptr = s.fileOffset;
         }
     }
     return symbols;
 }
 
-// todo use sections
 function parseSymbolsTable64(start, eachSize, num, head, nextInt, addMember, buf, namesStart, sections) {
     const symbols = [];
     for (let i = 0; i < num; i++) {
@@ -439,10 +440,257 @@ function parseSymbolsTable64(start, eachSize, num, head, nextInt, addMember, buf
         symbols.push(s);
 
         if (s.correspondingSection !== 0 && s.correspondingSection !== 0xfff1 && sections[s.correspondingSection]) {
-            valueMember.ptr = sections[s.correspondingSection].fileOffset + s.value;
+            s.fileOffset = sections[s.correspondingSection].fileOffset + s.value;
+            valueMember.ptr = s.fileOffset;
         }
     }
     return symbols;
+}
+
+function formatRelocationType(num, arch) {
+    let table;
+    if (arch === 0x03) { // x86 / 386 (32-bit)
+        table = {
+            0: "R_386_NONE",
+            1: "R_386_32",
+            2: "R_386_PC32",
+            3: "R_386_GOT32",
+            4: "R_386_PLT32",
+            5: "R_386_COPY",
+            6: "R_386_GLOB_DAT",
+            7: "R_386_JMP_SLOT",
+            8: "R_386_RELATIVE",
+            9: "R_386_GOTOFF",
+            10: "R_386_GOTPC",
+            11: "R_386_32PLT",
+            14: "R_386_TLS_TPOFF",
+            15: "R_386_TLS_IE",
+            16: "R_386_TLS_GOTIE",
+            17: "R_386_TLS_LE",
+            18: "R_386_TLS_GD",
+            19: "R_386_TLS_LDM",
+            20: "R_386_16",
+            21: "R_386_PC16",
+            22: "R_386_8",
+            23: "R_386_PC8",
+            24: "R_386_TLS_GD_32",
+            25: "R_386_TLS_GD_PUSH",
+            26: "R_386_TLS_GD_CALL",
+            27: "R_386_TLS_GD_POP",
+            28: "R_386_TLS_LDM_32",
+            29: "R_386_TLS_LDM_PUSH",
+            30: "R_386_TLS_LDM_CALL",
+            31: "R_386_TLS_LDM_POP",
+            32: "R_386_TLS_LDO_32",
+            33: "R_386_TLS_IE_32",
+            34: "R_386_TLS_LE_32",
+            35: "R_386_TLS_DTPMOD32",
+            36: "R_386_TLS_DTPOFF32",
+            37: "R_386_TLS_TPOFF32",
+            38: "R_386_SIZE32",
+            39: "R_386_TLS_GOTDESC",
+            40: "R_386_TLS_DESC_CALL",
+            41: "R_386_TLS_DESC",
+            42: "R_386_IRELATIVE",
+            43: "R_386_GOT32X",
+            44: "R_386_NUM"
+        };
+    } else if (arch === 0x3e) { // amd64 / x86-64 (64-bit)
+        table = {
+            1: "R_X86_64_64",
+            0: "R_X86_64_NONE",
+            2: "R_X86_64_PC32",
+            3: "R_X86_64_GOT32",
+            4: "R_X86_64_PLT32",
+            5: "R_X86_64_COPY",
+            6: "R_X86_64_GLOB_DAT",
+            7: "R_X86_64_JUMP_SLOT",
+            8: "R_X86_64_RELATIVE",
+            9: "R_X86_64_GOTPCREL",
+            10: "R_X86_64_32",
+            11: "R_X86_64_32S",
+            12: "R_X86_64_16",
+            13: "R_X86_64_PC16",
+            14: "R_X86_64_8",
+            15: "R_X86_64_PC8",
+            16: "R_X86_64_DTPMOD64",
+            17: "R_X86_64_DTPOFF64",
+            18: "R_X86_64_TPOFF64",
+            19: "R_X86_64_TLSGD",
+            20: "R_X86_64_TLSLD",
+            21: "R_X86_64_DTPOFF32",
+            22: "R_X86_64_GOTTPOFF",
+            23: "R_X86_64_TPOFF32",
+            24: "R_X86_64_PC64",
+            25: "R_X86_64_GOTOFF64",
+            26: "R_X86_64_GOTPC32",
+            27: "R_X86_64_GOT64",
+            28: "R_X86_64_GOTPCREL64",
+            29: "R_X86_64_GOTPC64",
+            30: "R_X86_64_GOTPLT64",
+            31: "R_X86_64_PLTOFF64",
+            32: "R_X86_64_SIZE32",
+            33: "R_X86_64_SIZE64",
+            34: "R_X86_64_GOTPC32_TLSDESC",
+            35: "R_X86_64_TLSDESC_CALL",
+            36: "R_X86_64_TLSDESC",
+            37: "R_X86_64_IRELATIVE",
+            38: "R_X86_64_RELATIVE64",
+            41: "R_X86_64_GOTPCRELX",
+            42: "R_X86_64_REX_GOTPCRELX",
+            43: "R_X86_64_NUM"
+        };
+    } else {
+        return "<no formatting for arch=0x" + arch.toString(16) + ">";
+    }
+    return table[num] ?? "unknown";
+}
+
+// Adaptively parse the relocation section (if any)
+function parseRelocationSections(regSize, elfHeader, sections, symbols, head, nextInt, addMember, addArea) {
+    if (!symbols) return [];
+
+    let fnRel, fnRela;
+    if (regSize === 4) {
+        fnRel = parseRelSection32;
+        fnRela = parseRelaSection32;
+    } else if (regSize === 8) {
+        fnRel = parseRelSection64;
+        fnRela = parseRelaSection64;
+    }
+
+    const result = [];
+    for (const affectedSectionName of [".text"]) {
+        const affectedSection = sections.find(s => s.nameStr === affectedSectionName);
+        if (!affectedSection) continue;
+
+        const relSection = sections.find(s => s.nameStr === ".rel" + affectedSectionName);
+        const relaSection = sections.find(s => s.nameStr === ".rela" + affectedSectionName);
+
+        if (relSection) {
+            const r = fnRel(relSection, elfHeader, symbols, affectedSection, head, nextInt, addMember, addArea);
+            result.push(...r);
+        }
+        if (relaSection) {
+            const r = fnRela(relaSection, elfHeader, symbols, affectedSection, head, nextInt, addMember, addArea);
+            result.push(...r);
+        }
+    }
+    return result;
+}
+
+function parseRelSection32(relSection, elfHeader, symbols, affectedSection, head, nextInt, addMember, addArea) {
+    const useOffset = affectedSection.fileOffset;
+    const relocs = [];
+    const num = relSection.size / relSection.entSize;
+    for (let i = 0; i < num; i++) {
+        const id = `${relSection.nameStr} [${i}]`; // e.g. ".rel.text [2]"
+        head.ptr = relSection.fileOffset + i * relSection.entSize;
+
+        const r_offset = nextInt(4);
+        addMember(4, `${id} offset`, useOffset + r_offset);
+
+        const r_info = nextInt(4);
+        const r_sym = r_info >> 8;
+        const r_type = r_info & 0xff;
+        const r_type_str = formatRelocationType(r_type, elfHeader.arch);
+        const symDeclaration = addMember(4, `${id} info (sym:type = 0x${r_sym.toString(16)}:0x${r_type.toString(16)} = ${r_type_str})`);
+
+        symDeclaration.ptr = symbols[r_sym].fileOffset;
+        const r = { offset: r_offset, sym: r_sym, type: r_type };
+        relocs.push(r);
+
+        addArea(relSection.fileOffset + i * relSection.entSize, relSection.entSize, id);
+        addArea(useOffset + r_offset, 4, id);
+    }
+    return relocs;
+}
+
+function parseRelSection64(relSection, elfHeader, symbols, affectedSection, head, nextInt, addMember, addArea) {
+    const useOffset = affectedSection.fileOffset;
+    const relocs = [];
+    const num = relSection.size / relSection.entSize;
+    for (let i = 0; i < num; i++) {
+        const id = `${relSection.nameStr} [${i}]`; // e.g. ".rel.text [2]"
+        head.ptr = relSection.fileOffset + i * relSection.entSize;
+
+        const r_offset = nextInt(8);
+        addMember(8, `${id} offset`, useOffset + r_offset);
+
+        const r_info = BigInt(nextInt(8));
+        const r_sym = Number(r_info >> 32n);
+        const r_type = Number(r_info & 0xffffffffn);
+        const r_type_str = formatRelocationType(r_type, elfHeader.arch);
+        const symDeclaration = addMember(8, `${id} info (sym:type = 0x${r_sym.toString(16)}:0x${r_type.toString(16)} = ${r_type_str})`);
+
+        symDeclaration.ptr = symbols[r_sym].fileOffset;
+        const r = { offset: r_offset, sym: r_sym, type: r_type };
+        relocs.push(r);
+
+        addArea(relSection.fileOffset + i * relSection.entSize, relSection.entSize, id);
+        addArea(useOffset + r_offset, 4, id);
+    }
+    return relocs;
+}
+
+function parseRelaSection32(relSection, elfHeader, symbols, affectedSection, head, nextInt, addMember, addArea) {
+    const useOffset = affectedSection.fileOffset;
+    const relocs = [];
+    const num = relSection.size / relSection.entSize;
+    for (let i = 0; i < num; i++) {
+        const id = `${relSection.nameStr} [${i}]`; // e.g. ".rel.text [2]"
+        head.ptr = relSection.fileOffset + i * relSection.entSize;
+
+        const r_offset = nextInt(4);
+        addMember(4, `${id} offset`, useOffset + r_offset);
+
+        const r_info = nextInt(4);
+        const r_sym = r_info >> 8;
+        const r_type = r_info & 0xff;
+        const r_type_str = formatRelocationType(r_type, elfHeader.arch);
+        const symDeclaration = addMember(4, `${id} info (sym:type = 0x${r_sym.toString(16)}:0x${r_type.toString(16)} = ${r_type_str})`);
+
+        const r_addend = nextInt(4);
+        addMember(4, `${id} addend (0x${r_addend.toString(16)})`);
+
+        symDeclaration.ptr = symbols[r_sym].fileOffset + r_addend;
+        const r = { offset: r_offset, sym: r_sym, type: r_type, addend: r_addend };
+        relocs.push(r);
+
+        addArea(relSection.fileOffset + i * relSection.entSize, relSection.entSize, id);
+        addArea(useOffset + r_offset, 4, id);
+    }
+    return relocs;
+}
+
+function parseRelaSection64(relSection, elfHeader, symbols, affectedSection, head, nextInt, addMember, addArea) {
+    const useOffset = affectedSection.fileOffset;
+    const relocs = [];
+    const num = relSection.size / relSection.entSize;
+    for (let i = 0; i < num; i++) {
+        const id = `${relSection.nameStr} [${i}]`; // e.g. ".rel.text [2]"
+        head.ptr = relSection.fileOffset + i * relSection.entSize;
+
+        const r_offset = nextInt(8);
+        addMember(8, `${id} offset`, useOffset + r_offset);
+
+        const r_info = BigInt(nextInt(8));
+        const r_sym = Number(r_info >> 32n);
+        const r_type = Number(r_info & 0xffffffffn);
+        const r_type_str = formatRelocationType(r_type, elfHeader.arch);
+        const symDeclaration = addMember(8, `${id} info (sym:type = 0x${r_sym.toString(16)}:0x${r_type.toString(16)} = ${r_type_str})`);
+
+        const r_addend = nextInt(8);
+        addMember(8, `${id} addend (0x${r_addend.toString(16)})`);
+
+        symDeclaration.ptr = symbols[r_sym].fileOffset + r_addend;
+        const r = { offset: r_offset, sym: r_sym, type: r_type, addend: r_addend };
+        relocs.push(r);
+
+        addArea(relSection.fileOffset + i * relSection.entSize, relSection.entSize, id);
+        addArea(useOffset + r_offset, 4, id);
+    }
+    return relocs;
 }
 
 function formatSymbolInfo(num) {
