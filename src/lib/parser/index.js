@@ -5,9 +5,11 @@ export default function parser(buf) {
     const atAddr = (shift = 0) => `at 0x${(head.ptr - shift).toString(16)}`;
 
     const members = [];
-    const addMember = (size, name, ptr, memPtr) => members.push(
-        { addr: head.ptr - size, len: size, name, ptr, memPtr }
-    );
+    const addMember = (size, name, ptr, memPtr) => {
+        const m = { addr: head.ptr - size, len: size, name, ptr, memPtr };
+        members.push(m);
+        return m;
+    };
     const areas = [];
     const addArea = (ptr, len, name) => areas.push({ ptr, len, name });
 
@@ -375,7 +377,7 @@ function parseSymbolsTable(regSize, sections, head, nextInt, addMember, addArea,
     if (regSize === 4) fn = parseSymbolsTable32;
     else if (regSize === 8) fn = parseSymbolsTable64;
 
-    const symbols = fn(start, eachSize, num, head, nextInt, addMember, buf, strtabHeader.fileOffset);
+    const symbols = fn(start, eachSize, num, head, nextInt, addMember, buf, strtabHeader.fileOffset, sections);
 
     for (let i = 0; i < num; i++) {
         addArea(start + i * eachSize, eachSize, `Symbol [${i}] "${symbols[i].nameStr}"`);
@@ -384,7 +386,7 @@ function parseSymbolsTable(regSize, sections, head, nextInt, addMember, addArea,
     return symbols;
 }
 
-function parseSymbolsTable32(start, eachSize, num, head, nextInt, addMember, buf, namesStart) {
+function parseSymbolsTable32(start, eachSize, num, head, nextInt, addMember, buf, namesStart, sections) {
     const symbols = [];
     for (let i = 0; i < num; i++) {
         head.ptr = start + i * eachSize;
@@ -394,7 +396,7 @@ function parseSymbolsTable32(start, eachSize, num, head, nextInt, addMember, buf
         s.nameStr = readStringAt(namesStart + s.name, buf);
         addMember(4, `Symbol [${i}] name offset (0x${s.name.toString(16)}, "${s.nameStr}")`, namesStart + s.name);
         s.value = nextInt(4);
-        addMember(4, `Symbol [${i}] value (i.e. address) = 0x${s.value.toString(16)}`);
+        const valueMember = addMember(4, `Symbol [${i}] value (i.e. address) = 0x${s.value.toString(16)}`);
         s.size = nextInt(4);
         addMember(4, `Symbol [${i}] size (0x${s.size.toString(16)})`);
         s.info = nextInt(1);
@@ -405,11 +407,16 @@ function parseSymbolsTable32(start, eachSize, num, head, nextInt, addMember, buf
         addMember(2, `Symbol [${i}] corresponding section (${formatSymbolSection(s.correspondingSection)})`);
 
         symbols.push(s);
+
+        if (s.correspondingSection !== 0 && s.correspondingSection !== 0xfff1 && sections[s.correspondingSection]) {
+            valueMember.ptr = sections[s.correspondingSection].fileOffset + s.value;
+        }
     }
     return symbols;
 }
 
-function parseSymbolsTable64(start, eachSize, num, head, nextInt, addMember, buf, namesStart) {
+// todo use sections
+function parseSymbolsTable64(start, eachSize, num, head, nextInt, addMember, buf, namesStart, sections) {
     const symbols = [];
     for (let i = 0; i < num; i++) {
         head.ptr = start + i * eachSize;
@@ -425,11 +432,15 @@ function parseSymbolsTable64(start, eachSize, num, head, nextInt, addMember, buf
         s.correspondingSection = nextInt(2);
         addMember(2, `Symbol [${i}] corresponding section (${formatSymbolSection(s.correspondingSection)})`);
         s.value = nextInt(8);
-        addMember(8, `Symbol [${i}] value (i.e. address) = 0x${s.value.toString(16)}`);
+        const valueMember = addMember(8, `Symbol [${i}] value (i.e. address) = 0x${s.value.toString(16)}`);
         s.size = nextInt(8);
         addMember(8, `Symbol [${i}] size (0x${s.size.toString(16)})`);
 
         symbols.push(s);
+
+        if (s.correspondingSection !== 0 && s.correspondingSection !== 0xfff1 && sections[s.correspondingSection]) {
+            valueMember.ptr = sections[s.correspondingSection].fileOffset + s.value;
+        }
     }
     return symbols;
 }
