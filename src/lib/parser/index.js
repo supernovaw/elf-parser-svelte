@@ -283,7 +283,7 @@ function parseSectionHeaders(regSize, elfHeader, head, nextInt, addMember, addAr
         shstrtabArrayOffset
     );
     sections.forEach((s, i) => {
-        if (s.fileOffset !== 0)
+        if (s.fileOffset !== 0 && s.type !== 8) // type 8 is NOBITS
             addArea(s.fileOffset, s.size, `Section [${i}] "${s.nameStr}"`);
     });
     return sections;
